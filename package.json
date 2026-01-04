@@ -1,0 +1,30 @@
+{
+    "name": "voting-contest-blockchain",
+    "version": "1.0.0",
+    "description": "Blockchain voting system using Polygon Amoy testnet",
+    "main": "index.js",
+    "scripts": {
+        "test": "hardhat test",
+        "compile": "hardhat compile",
+        "deploy:local": "hardhat run scripts/deploy-local.js",
+        "deploy:amoy": "hardhat run scripts/deploy.js --network polygonAmoy",
+        "verify": "hardhat verify --network polygonAmoy"
+    },
+    "keywords": [
+        "blockchain",
+        "voting",
+        "polygon",
+        "solidity"
+    ],
+    "author": "VietCV",
+    "license": "MIT",
+    "devDependencies": {
+        "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+        "hardhat": "^2.19.0"
+    },
+    "dependencies": {
+        "@openzeppelin/contracts": "^5.0.0",
+        "dotenv": "^16.3.1",
+        "ethers": "^6.14.0"
+    }
+}
