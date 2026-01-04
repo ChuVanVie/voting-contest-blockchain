@@ -1,0 +1,10 @@
+{
+  "contractAddress": "0x2F833889fe7730cFA84cBCC106b0a5a6BA3a862F",
+  "owner": "0x18924ee3Ab362A5c345a21477227A7035527f87b",
+  "network": "polygonAmoy",
+  "chainId": "80002",
+  "blockNumber": 31658566,
+  "deployedAt": "2026-01-03T11:41:17.201Z",
+  "explorerUrl": "https://amoy.polygonscan.com/address/0x2F833889fe7730cFA84cBCC106b0a5a6BA3a862F",
+  "transactionHash": "0x966afcc4ebdf95ac709a3dfbec00d0a2b6655aa3dddb959d2dd9cb1411bd7709"
+}

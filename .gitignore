@@ -7,11 +7,9 @@ typechain-types
 
 # Hardhat files
 cache
-artifacts
 
 # Deployment artifacts
 deployed-address.txt
-deployments/
 
 # IDE
 .idea
