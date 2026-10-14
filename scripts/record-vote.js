@@ -8,12 +8,19 @@ async function main() {
     if (args.length < 6) {
         console.error(JSON.stringify({
             success: false,
-            error: "Missing arguments. Usage: node record-vote.js <rpcUrl> <privateKey> <contractAddress> <eventId> <choiceId> <voterHash> <voteHash>"
+            error: "Missing arguments. Usage: SIGNER_PRIVATE_KEY=... node record-vote.js <rpcUrl> <contractAddress> <eventId> <choiceId> <voterHash> <voteHash>"
         }));
         process.exit(1);
     }
 
-    const [rpcUrl, privateKey, contractAddress, eventId, choiceId, voterHash, voteHash] = args;
+    const [rpcUrl, contractAddress, eventId, choiceId, voterHash, voteHash] = args;
+
+    // The key comes from the environment, never argv: arguments are visible to every process via ps
+    const privateKey = process.env.SIGNER_PRIVATE_KEY;
+    if (!privateKey) {
+        console.error(JSON.stringify({ success: false, error: "SIGNER_PRIVATE_KEY is not set" }));
+        process.exit(1);
+    }
 
     try {
         const provider = new ethers.JsonRpcProvider(rpcUrl);
@@ -29,12 +36,17 @@ async function main() {
         // Send transaction
         const tx = await contract.recordVote(eventId, choiceId, voterHash, voteHash);
 
-        // We don't necessarily wait for full confirmation here to keep it fast for the API,
-        // but we return the hash immediately.
+        // Only report success once the transaction is mined and did not revert, because the
+        // backend marks the vote as verified on success. This runs in a queued job, not the API request.
+        const receipt = await tx.wait(1);
+        if (!receipt || receipt.status !== 1) {
+            throw new Error(`Transaction ${tx.hash} reverted`);
+        }
 
         console.log(JSON.stringify({
             success: true,
-            txHash: tx.hash
+            txHash: tx.hash,
+            blockNumber: receipt.blockNumber
         }));
 
     } catch (error) {

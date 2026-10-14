@@ -3,15 +3,22 @@ const { ethers } = require("ethers");
 async function main() {
     // Parse arguments
     const args = process.argv.slice(2);
-    if (args.length < 7) {
+    if (args.length < 6) {
         console.error(JSON.stringify({
             success: false,
-            error: "Missing arguments. Usage: node register-event.js <rpcUrl> <privateKey> <contractAddress> <eventId> <metadataHash> <startTime> <endTime>"
+            error: "Missing arguments. Usage: SIGNER_PRIVATE_KEY=... node register-event.js <rpcUrl> <contractAddress> <eventId> <metadataHash> <startTime> <endTime>"
         }));
         process.exit(1);
     }
 
-    const [rpcUrl, privateKey, contractAddress, eventId, metadataHash, startTime, endTime] = args;
+    const [rpcUrl, contractAddress, eventId, metadataHash, startTime, endTime] = args;
+
+    // The key comes from the environment, never argv: arguments are visible to every process via ps
+    const privateKey = process.env.SIGNER_PRIVATE_KEY;
+    if (!privateKey) {
+        console.error(JSON.stringify({ success: false, error: "SIGNER_PRIVATE_KEY is not set" }));
+        process.exit(1);
+    }
 
     try {
         const provider = new ethers.JsonRpcProvider(rpcUrl);
