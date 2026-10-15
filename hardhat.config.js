@@ -4,7 +4,7 @@ require("dotenv").config();
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
     solidity: {
-        version: "0.8.20",
+        version: "0.8.24",
         settings: {
             optimizer: {
                 enabled: true,
@@ -19,8 +19,7 @@ module.exports = {
         polygonAmoy: {
             url: process.env.POLYGON_AMOY_RPC || "https://rpc-amoy.polygon.technology",
             accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-            chainId: 80002,
-            gasPrice: 35000000000, // 35 gwei
+            chainId: 80002
         }
     },
     etherscan: {

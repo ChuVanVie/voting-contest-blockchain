@@ -19,10 +19,15 @@ async function main() {
         process.exit(1);
     }
 
+    // Resolve roles: admin should be a multisig, recorder is the backend hot wallet
+    const { admin, recorder } = resolveRoles(deployer.address);
+    console.log("🛡️  Admin (DEFAULT_ADMIN_ROLE):", admin);
+    console.log("✍️  Recorder (RECORDER_ROLE):", recorder, "\n");
+
     // Deploy contract
     console.log("⚙️  Deploying VotingRegistry contract...");
     const VotingRegistry = await hre.ethers.getContractFactory("VotingRegistry");
-    const votingRegistry = await VotingRegistry.deploy();
+    const votingRegistry = await VotingRegistry.deploy(admin, recorder);
 
     await votingRegistry.waitForDeployment();
 
@@ -31,12 +36,15 @@ async function main() {
     console.log("\n✅ VotingRegistry deployed successfully!");
     console.log("📍 Contract Address:", address);
     console.log("🔗 View on PolygonScan:", `https://amoy.polygonscan.com/address/${address}`);
-    console.log("👤 Owner:", deployer.address);
+    console.log("🛡️  Admin:", admin);
+    console.log("✍️  Recorder:", recorder);
 
     // Save deployment info
     const deploymentInfo = {
         contractAddress: address,
-        owner: deployer.address,
+        deployer: deployer.address,
+        admin: admin,
+        recorder: recorder,
         network: hre.network.name,
         chainId: (await hre.ethers.provider.getNetwork()).chainId.toString(),
         blockNumber: await hre.ethers.provider.getBlockNumber(),
@@ -64,7 +72,9 @@ async function main() {
 Contract Address: ${address}
 Network: ${hre.network.name}
 Chain ID: ${deploymentInfo.chainId}
-Owner: ${deployer.address}
+Deployer: ${deployer.address}
+Admin (DEFAULT_ADMIN_ROLE): ${admin}
+Recorder (RECORDER_ROLE): ${recorder}
 Deployed: ${deploymentInfo.deployedAt}
 
 Explorer: ${deploymentInfo.explorerUrl}
@@ -76,15 +86,21 @@ NEXT STEPS:
 1. Update your .env file with:
    CONTRACT_ADDRESS=${address}
 
-2. Update frontend .env with:
+2. Update the backend .env with:
+   VOTING_CONTRACT_ADDRESS=${address}
+   The backend wallet (BLOCKCHAIN_WALLET_ADDRESS) must hold RECORDER_ROLE.
+   If it is not ${recorder}, have the admin call
+   grantRole(RECORDER_ROLE, <backend wallet>).
+
+3. Update frontend .env with:
    VITE_VOTING_CONTRACT_ADDRESS=${address}
    VITE_BLOCKCHAIN_NETWORK=polygon-amoy
    VITE_POLYGON_EXPLORER=https://amoy.polygonscan.com
 
-3. Verify contract (optional but recommended):
-   npx hardhat verify --network polygonAmoy ${address}
+4. Verify contract (optional but recommended):
+   npx hardhat verify --network polygonAmoy ${address} ${admin} ${recorder}
 
-4. Test the contract:
+5. Test the contract:
    Visit: https://amoy.polygonscan.com/address/${address}
 
 ───────────────────────────────────────────────────────────────
@@ -93,11 +109,33 @@ NEXT STEPS:
     fs.writeFileSync(path.join(__dirname, '../deployed-address.txt'), txtContent);
 
     console.log("\n📋 Next steps:");
-    console.log("   1. Update .env with contract address");
-    console.log("   2. Update frontend configuration");
-    console.log("   3. Verify contract (optional):");
-    console.log(`      npx hardhat verify --network polygonAmoy ${address}`);
+    console.log("   1. Update .env with contract address (backend: VOTING_CONTRACT_ADDRESS)");
+    console.log("   2. Make sure the backend wallet holds RECORDER_ROLE");
+    console.log("   3. Update frontend configuration");
+    console.log("   4. Verify contract (optional):");
+    console.log(`      npx hardhat verify --network polygonAmoy ${address} ${admin} ${recorder}`);
     console.log("\n🎉 Deployment complete!\n");
+}
+
+function resolveRoles(deployerAddress) {
+    const admin = process.env.ADMIN_ADDRESS || deployerAddress;
+    const recorder = process.env.RECORDER_ADDRESS || deployerAddress;
+
+    for (const [name, value] of [["ADMIN_ADDRESS", admin], ["RECORDER_ADDRESS", recorder]]) {
+        if (!hre.ethers.isAddress(value)) {
+            throw new Error(`${name} is not a valid address: ${value}`);
+        }
+    }
+
+    if (!process.env.ADMIN_ADDRESS) {
+        console.warn("⚠️  WARNING: ADMIN_ADDRESS not set, the deployer becomes admin.");
+        console.warn("   Use a multisig as admin in production, or transfer DEFAULT_ADMIN_ROLE right after deployment.\n");
+    }
+    if (!process.env.RECORDER_ADDRESS) {
+        console.warn("⚠️  WARNING: RECORDER_ADDRESS not set, the deployer becomes recorder.\n");
+    }
+
+    return { admin: hre.ethers.getAddress(admin), recorder: hre.ethers.getAddress(recorder) };
 }
 
 main()

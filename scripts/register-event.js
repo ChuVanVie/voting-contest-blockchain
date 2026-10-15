@@ -34,9 +34,16 @@ async function main() {
         // Send transaction
         const tx = await contract.registerEvent(eventId, metadataHash, startTime, endTime);
 
+        // Report success only once mined without revert (e.g. re-registration or a paused contract)
+        const receipt = await tx.wait(1);
+        if (!receipt || receipt.status !== 1) {
+            throw new Error(`Transaction ${tx.hash} reverted`);
+        }
+
         console.log(JSON.stringify({
             success: true,
-            txHash: tx.hash
+            txHash: tx.hash,
+            blockNumber: receipt.blockNumber
         }));
 
     } catch (error) {
