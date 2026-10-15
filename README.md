@@ -52,6 +52,9 @@ npx hardhat test
 # Run tests with gas reporting
 REPORT_GAS=true npx hardhat test
 
+# Run coverage
+npm run coverage
+
 # Run specific test file
 npx hardhat test test/VotingRegistry.test.js
 ```
@@ -65,6 +68,8 @@ Edit `.env` file:
 PRIVATE_KEY=your_metamask_private_key_without_0x
 POLYGON_AMOY_RPC=https://rpc-amoy.polygon.technology
 POLYGONSCAN_API_KEY=your_api_key_optional
+ADMIN_ADDRESS=0x...      # multisig, gets DEFAULT_ADMIN_ROLE (defaults to deployer)
+RECORDER_ADDRESS=0x...   # backend wallet, gets RECORDER_ROLE (defaults to deployer)
 ```
 
 ### Step 2: Get Test MATIC
@@ -102,15 +107,31 @@ npm run verify
 
 Main contract for recording votes on blockchain.
 
+**Constructor:** `constructor(address admin, address recorder)`
+
+**Roles (OpenZeppelin AccessControl):**
+
+- `DEFAULT_ADMIN_ROLE` - grants/revokes roles, pauses/unpauses. Use a multisig in production.
+- `RECORDER_ROLE` - the backend wallet; the only account allowed to write.
+
 **Key Functions:**
 
-- `recordVote(voteId, eventId, voterId, targetId)` - Record a new vote
-- `verifyVote(voteId)` - Verify if a vote exists
-- `getVote(voteId)` - Get vote details
+- `registerEvent(eventId, metadataHash, startTime, endTime)` - RECORDER_ROLE, not paused. Reverts if the event ID was already registered or `startTime >= endTime`
+- `recordVote(eventId, choiceId, voterHash, voteHash)` - RECORDER_ROLE, not paused, event active and within its time window. Unique per `voteHash`; a voter may cast several votes per event
+- `closeEvent(eventId)` - RECORDER_ROLE or admin (also while paused). Marks the event inactive; no more votes are accepted and it cannot be re-registered
+- `pause()` / `unpause()` - admin only; blocks `registerEvent` and `recordVote`
+- `verifyVote(voteHash)` - Vote details (eventId, choiceId, voterHash, timestamp)
+- `events(eventId)` / `getEvent(eventId)` - Event details
+- `getEventVotes(eventId, offset, limit)` - Paginated vote hashes (limit <= `MAX_PAGE_SIZE`)
+- `getEventVoteCount(eventId)` / `getChoiceVoteCount(eventId, choiceId)` - Counters
+
+Event and choice IDs must fit in `uint64`.
 
 **Events:**
 
+- `EventRegistered` - Emitted when an event is registered
 - `VoteRecorded` - Emitted when a vote is recorded
+- `EventClosed` - Emitted when an event is closed
 
 ## 🔧 Configuration
 
@@ -121,8 +142,9 @@ Main contract for recording votes on blockchain.
 
 ### Gas Settings
 
+- Solidity: 0.8.24
 - Optimizer: Enabled (200 runs)
-- Gas Price: 35 gwei
+- Gas Price: estimated by the network (EIP-1559)
 
 ## 📁 Project Structure
 

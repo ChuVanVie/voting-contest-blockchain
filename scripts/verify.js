@@ -1,4 +1,6 @@
 const hre = require("hardhat");
+const fs = require("fs");
+const path = require("path");
 
 async function main() {
     const contractAddress = process.env.CONTRACT_ADDRESS;
@@ -8,13 +10,26 @@ async function main() {
         process.exit(1);
     }
 
+    // Constructor args: env first, then the deployment record written by deploy.js
+    const deploymentPath = path.join(__dirname, `../deployments/${hre.network.name}-latest.json`);
+    const deployment = fs.existsSync(deploymentPath) ? JSON.parse(fs.readFileSync(deploymentPath, "utf8")) : {};
+    const sameContract = deployment.contractAddress
+        && deployment.contractAddress.toLowerCase() === contractAddress.toLowerCase();
+    const admin = process.env.ADMIN_ADDRESS || (sameContract ? deployment.admin : undefined);
+    const recorder = process.env.RECORDER_ADDRESS || (sameContract ? deployment.recorder : undefined);
+
+    if (!admin || !recorder) {
+        console.error("❌ Please set ADMIN_ADDRESS and RECORDER_ADDRESS (the constructor arguments) in .env file");
+        process.exit(1);
+    }
+
     console.log("🔍 Verifying contract at:", contractAddress);
     console.log("🌐 Network:", hre.network.name);
 
     try {
         await hre.run("verify:verify", {
             address: contractAddress,
-            constructorArguments: [],
+            constructorArguments: [admin, recorder],
         });
 
         console.log("✅ Contract verified successfully!");
