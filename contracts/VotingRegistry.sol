@@ -19,13 +19,17 @@ contract VotingRegistry is AccessControl, Pausable {
     // Upper bound for one page of getEventVotes, keeps eth_call within RPC gas caps
     uint256 public constant MAX_PAGE_SIZE = 1000;
 
+    // Largest vote package one record may carry (the platform sells far smaller ones)
+    uint256 public constant MAX_QUANTITY = 1_000_000;
+
     // Structs
-    // Packed into 2 storage slots: voterHash | eventId + choiceId + timestamp + exists
+    // Packed into 2 storage slots: voterHash | eventId + choiceId + timestamp + quantity + exists
     struct Vote {
         bytes32 voterHash;      // Hashed voter ID for privacy
         uint64 eventId;
         uint64 choiceId;        // ID of candidate or submission
         uint64 timestamp;
+        uint32 quantity;        // Votes this record counts for: 1, or the size of a bought vote package
         bool exists;
     }
 
@@ -43,14 +47,16 @@ contract VotingRegistry is AccessControl, Pausable {
     mapping(bytes32 => Vote) private _votes;            // voteHash => Vote (read through votes())
     mapping(uint256 => Event) public events;            // eventId => Event
     mapping(uint256 => bytes32[]) public eventVotes;    // eventId => voteHashes[]
-    mapping(uint256 => mapping(uint256 => uint256)) public choiceVoteCounts; // eventId => choiceId => count
+    mapping(uint256 => mapping(uint256 => uint256)) public choiceVoteCounts; // eventId => choiceId => votes (sum of quantities)
+    mapping(uint256 => uint256) public eventVoteTotals;  // eventId => votes (sum of quantities)
 
     // Events
     event VoteRecorded(
         bytes32 indexed voteHash,
         uint256 indexed eventId,
         uint256 indexed choiceId,
-        uint256 timestamp
+        uint256 timestamp,
+        uint256 quantity
     );
 
     event EventRegistered(
@@ -133,7 +139,7 @@ contract VotingRegistry is AccessControl, Pausable {
     }
 
     /**
-     * @dev Record a vote on blockchain. A voter may cast several votes in one event
+     * @dev Record one vote on blockchain. A voter may cast several votes in one event
      *      (max_votes_per_user > 1); uniqueness is enforced on the vote hash only.
      * @param _eventId Event identifier
      * @param _choiceId Candidate/submission identifier
@@ -146,8 +152,34 @@ contract VotingRegistry is AccessControl, Pausable {
         bytes32 _voterHash,
         bytes32 _voteHash
     ) external onlyRole(RECORDER_ROLE) whenNotPaused onlyActiveEvent(_eventId) {
+        _record(_eventId, _choiceId, _voterHash, _voteHash, 1);
+    }
+
+    /**
+     * @dev Record one purchase of several votes (a vote package) as a single record that counts
+     *      `_quantity` times towards the choice and event totals.
+     * @param _quantity Votes in the purchase, 1 to MAX_QUANTITY
+     */
+    function recordVotes(
+        uint256 _eventId,
+        uint256 _choiceId,
+        bytes32 _voterHash,
+        bytes32 _voteHash,
+        uint256 _quantity
+    ) external onlyRole(RECORDER_ROLE) whenNotPaused onlyActiveEvent(_eventId) {
+        _record(_eventId, _choiceId, _voterHash, _voteHash, _quantity);
+    }
+
+    function _record(
+        uint256 _eventId,
+        uint256 _choiceId,
+        bytes32 _voterHash,
+        bytes32 _voteHash,
+        uint256 _quantity
+    ) private {
         require(!_votes[_voteHash].exists, "Vote already recorded");
         require(_choiceId <= type(uint64).max, "Choice ID too large");
+        require(_quantity >= 1 && _quantity <= MAX_QUANTITY, "Invalid quantity");
 
         // eventId fits in uint64: registerEvent enforces it and the event is registered
         _votes[_voteHash] = Vote({
@@ -155,13 +187,15 @@ contract VotingRegistry is AccessControl, Pausable {
             eventId: uint64(_eventId),
             choiceId: uint64(_choiceId),
             timestamp: uint64(block.timestamp),
+            quantity: uint32(_quantity),
             exists: true
         });
 
         eventVotes[_eventId].push(_voteHash);
-        choiceVoteCounts[_eventId][_choiceId]++;
+        choiceVoteCounts[_eventId][_choiceId] += _quantity;
+        eventVoteTotals[_eventId] += _quantity;
 
-        emit VoteRecorded(_voteHash, _eventId, _choiceId, block.timestamp);
+        emit VoteRecorded(_voteHash, _eventId, _choiceId, block.timestamp, _quantity);
     }
 
     /**
@@ -179,7 +213,7 @@ contract VotingRegistry is AccessControl, Pausable {
     }
 
     /**
-     * @dev Raw vote record, same return shape as the former public mapping getter
+     * @dev Raw vote record, the former public mapping getter's fields plus quantity (appended last)
      * @param _voteHash Vote hash
      */
     function votes(bytes32 _voteHash)
@@ -190,11 +224,12 @@ contract VotingRegistry is AccessControl, Pausable {
             uint256 choiceId,
             bytes32 voterHash,
             uint256 timestamp,
-            bool exists
+            bool exists,
+            uint256 quantity
         )
     {
         Vote memory vote = _votes[_voteHash];
-        return (vote.eventId, vote.choiceId, vote.voterHash, vote.timestamp, vote.exists);
+        return (vote.eventId, vote.choiceId, vote.voterHash, vote.timestamp, vote.exists, vote.quantity);
     }
 
     /**
@@ -204,6 +239,7 @@ contract VotingRegistry is AccessControl, Pausable {
      * @return choiceId Choice identifier
      * @return voterHash Hashed voter identifier
      * @return timestamp Vote timestamp
+     * @return quantity Votes the record counts for (appended last so older readers of the first four still work)
      */
     function verifyVote(bytes32 _voteHash)
         external
@@ -212,12 +248,13 @@ contract VotingRegistry is AccessControl, Pausable {
             uint256 eventId,
             uint256 choiceId,
             bytes32 voterHash,
-            uint256 timestamp
+            uint256 timestamp,
+            uint256 quantity
         )
     {
         require(_votes[_voteHash].exists, "Vote not found");
         Vote memory vote = _votes[_voteHash];
-        return (vote.eventId, vote.choiceId, vote.voterHash, vote.timestamp);
+        return (vote.eventId, vote.choiceId, vote.voterHash, vote.timestamp, vote.quantity);
     }
 
     /**
@@ -252,19 +289,28 @@ contract VotingRegistry is AccessControl, Pausable {
     }
 
     /**
-     * @dev Get total vote count for an event
+     * @dev Number of vote records for an event (a package purchase is one record; see getEventVoteTotal)
      * @param _eventId Event identifier
-     * @return Total number of votes
+     * @return Number of vote records
      */
     function getEventVoteCount(uint256 _eventId) external view returns (uint256) {
         return eventVotes[_eventId].length;
     }
 
     /**
+     * @dev Votes for an event: the sum of every record's quantity
+     * @param _eventId Event identifier
+     * @return Total number of votes
+     */
+    function getEventVoteTotal(uint256 _eventId) external view returns (uint256) {
+        return eventVoteTotals[_eventId];
+    }
+
+    /**
      * @dev Get vote count for a specific choice
      * @param _eventId Event identifier
      * @param _choiceId Choice identifier
-     * @return Number of votes for the choice
+     * @return Number of votes for the choice (sum of quantities)
      */
     function getChoiceVoteCount(uint256 _eventId, uint256 _choiceId)
         external

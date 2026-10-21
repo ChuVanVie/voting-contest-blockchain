@@ -173,7 +173,38 @@ describe("VotingRegistry", function () {
 
             await expect(votingRegistry.connect(recorder).recordVote(eventId, choiceId, voterHash, voteHash))
                 .to.emit(votingRegistry, "VoteRecorded")
-                .withArgs(voteHash, eventId, choiceId, nextTimestamp);
+                .withArgs(voteHash, eventId, choiceId, nextTimestamp, 1);
+        });
+
+        it("Should count a vote package as its quantity", async function () {
+            const { votingRegistry, recorder, eventId } = await loadFixture(activeEventFixture);
+
+            await votingRegistry.connect(recorder).recordVote(eventId, 101, ethers.id("voter-1"), ethers.id("vote-1"));
+            await expect(votingRegistry.connect(recorder).recordVotes(eventId, 101, ethers.id("voter-2"), ethers.id("vote-2"), 50))
+                .to.emit(votingRegistry, "VoteRecorded");
+
+            expect(await votingRegistry.getChoiceVoteCount(eventId, 101)).to.equal(51);
+            expect(await votingRegistry.getEventVoteTotal(eventId)).to.equal(51);
+            expect(await votingRegistry.getEventVoteCount(eventId)).to.equal(2);
+            expect((await votingRegistry.verifyVote(ethers.id("vote-2"))).quantity).to.equal(50);
+            expect((await votingRegistry.votes(ethers.id("vote-1"))).quantity).to.equal(1);
+        });
+
+        it("Should reject a package of zero or too many votes", async function () {
+            const { votingRegistry, recorder, eventId } = await loadFixture(activeEventFixture);
+            const max = await votingRegistry.MAX_QUANTITY();
+
+            await expect(votingRegistry.connect(recorder).recordVotes(eventId, 101, ethers.id("voter-1"), ethers.id("vote-1"), 0))
+                .to.be.revertedWith("Invalid quantity");
+            await expect(votingRegistry.connect(recorder).recordVotes(eventId, 101, ethers.id("voter-1"), ethers.id("vote-1"), max + 1n))
+                .to.be.revertedWith("Invalid quantity");
+        });
+
+        it("Should not allow non-recorder to record a vote package", async function () {
+            const { votingRegistry, outsider, eventId } = await loadFixture(activeEventFixture);
+
+            await expect(votingRegistry.connect(outsider).recordVotes(eventId, 101, ethers.id("voter-1"), ethers.id("vote-1"), 5))
+                .to.be.revertedWithCustomError(votingRegistry, "AccessControlUnauthorizedAccount");
         });
 
         it("Should increment choice vote count", async function () {
@@ -431,11 +462,13 @@ describe("VotingRegistry", function () {
             const raw = await ethers.provider.call({ to: await votingRegistry.getAddress(), data });
             const hex = raw.slice(2);
 
-            expect(hex.length).to.equal(4 * 64);
+            // quantity is appended last, so the first four words keep their offsets
+            expect(hex.length).to.equal(5 * 64);
             expect(BigInt("0x" + hex.slice(0, 64))).to.equal(BigInt(eventId));
             expect(BigInt("0x" + hex.slice(64, 128))).to.equal(101n);
             expect("0x" + hex.slice(128, 192)).to.equal(voterHash);
             expect(BigInt("0x" + hex.slice(192, 256))).to.equal(BigInt(await time.latest()));
+            expect(BigInt("0x" + hex.slice(256, 320))).to.equal(1n);
         });
 
         it("Should revert for non-existing vote", async function () {

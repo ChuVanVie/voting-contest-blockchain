@@ -118,19 +118,21 @@ Main contract for recording votes on blockchain.
 
 - `registerEvent(eventId, metadataHash, startTime, endTime)` - RECORDER_ROLE, not paused. Reverts if the event ID was already registered or `startTime >= endTime`
 - `recordVote(eventId, choiceId, voterHash, voteHash)` - RECORDER_ROLE, not paused, event active and within its time window. Unique per `voteHash`; a voter may cast several votes per event
+- `recordVotes(eventId, choiceId, voterHash, voteHash, quantity)` - same rules; one purchase of a vote package, a single record that counts `quantity` times (1 to `MAX_QUANTITY`)
 - `closeEvent(eventId)` - RECORDER_ROLE or admin (also while paused). Marks the event inactive; no more votes are accepted and it cannot be re-registered
-- `pause()` / `unpause()` - admin only; blocks `registerEvent` and `recordVote`
-- `verifyVote(voteHash)` - Vote details (eventId, choiceId, voterHash, timestamp)
+- `pause()` / `unpause()` - admin only; blocks `registerEvent`, `recordVote` and `recordVotes`
+- `verifyVote(voteHash)` - Vote details (eventId, choiceId, voterHash, timestamp, quantity; quantity is appended last so the first four keep their offsets)
 - `events(eventId)` / `getEvent(eventId)` - Event details
 - `getEventVotes(eventId, offset, limit)` - Paginated vote hashes (limit <= `MAX_PAGE_SIZE`)
-- `getEventVoteCount(eventId)` / `getChoiceVoteCount(eventId, choiceId)` - Counters
+- `getEventVoteCount(eventId)` - Number of vote records
+- `getEventVoteTotal(eventId)` / `getChoiceVoteCount(eventId, choiceId)` - Votes, summing each record's quantity
 
 Event and choice IDs must fit in `uint64`.
 
 **Events:**
 
 - `EventRegistered` - Emitted when an event is registered
-- `VoteRecorded` - Emitted when a vote is recorded
+- `VoteRecorded` - Emitted when a vote is recorded (with its quantity)
 - `EventClosed` - Emitted when an event is closed
 
 ## 🔧 Configuration

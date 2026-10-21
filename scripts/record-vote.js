@@ -8,12 +8,18 @@ async function main() {
     if (args.length < 6) {
         console.error(JSON.stringify({
             success: false,
-            error: "Missing arguments. Usage: SIGNER_PRIVATE_KEY=... node record-vote.js <rpcUrl> <contractAddress> <eventId> <choiceId> <voterHash> <voteHash>"
+            error: "Missing arguments. Usage: SIGNER_PRIVATE_KEY=... node record-vote.js <rpcUrl> <contractAddress> <eventId> <choiceId> <voterHash> <voteHash> [quantity]"
         }));
         process.exit(1);
     }
 
     const [rpcUrl, contractAddress, eventId, choiceId, voterHash, voteHash] = args;
+    // Votes in the purchase: a vote package is one record worth `quantity` votes
+    const quantity = args[6] === undefined ? 1 : Number(args[6]);
+    if (!Number.isInteger(quantity) || quantity < 1) {
+        console.error(JSON.stringify({ success: false, error: "quantity must be a whole number of at least 1" }));
+        process.exit(1);
+    }
 
     // The key comes from the environment, never argv: arguments are visible to every process via ps
     const privateKey = process.env.SIGNER_PRIVATE_KEY;
@@ -26,15 +32,18 @@ async function main() {
         const provider = new ethers.JsonRpcProvider(rpcUrl);
         const wallet = new ethers.Wallet(privateKey, provider);
 
-        // Minimal ABI for recordVote
+        // Minimal ABI: single votes keep using recordVote, so a contract without recordVotes still takes them
         const abi = [
-            "function recordVote(uint256 eventId, uint256 choiceId, bytes32 voterHash, bytes32 voteHash) external"
+            "function recordVote(uint256 eventId, uint256 choiceId, bytes32 voterHash, bytes32 voteHash) external",
+            "function recordVotes(uint256 eventId, uint256 choiceId, bytes32 voterHash, bytes32 voteHash, uint256 quantity) external"
         ];
 
         const contract = new ethers.Contract(contractAddress, abi, wallet);
 
         // Send transaction
-        const tx = await contract.recordVote(eventId, choiceId, voterHash, voteHash);
+        const tx = quantity === 1
+            ? await contract.recordVote(eventId, choiceId, voterHash, voteHash)
+            : await contract.recordVotes(eventId, choiceId, voterHash, voteHash, quantity);
 
         // Only report success once the transaction is mined and did not revert, because the
         // backend marks the vote as verified on success. This runs in a queued job, not the API request.
